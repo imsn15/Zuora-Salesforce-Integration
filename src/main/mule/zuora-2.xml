@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce"
+	xmlns:mule-zuora-connector="http://www.mulesoft.org/schema/mule/mule-zuora-connector"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/mule-zuora-connector http://www.mulesoft.org/schema/mule/mule-zuora-connector/current/mule-mule-zuora-connector.xsd
+http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+	
+	<salesforce:sfdc-config name="Salesforce_Config"
+		doc:name="Salesforce Config"
+		doc:id="de3cfaf4-74d9-4f38-96ce-9f23b3d42b0c">
+		<salesforce:basic-connection
+			username="imsn@eaiesb.sandbox" password="Novv15@sn"
+			securityToken="tDO4ilK72xzE6WfIqPpKZl5Z5" />
+	</salesforce:sfdc-config>
+	<mule-zuora-connector:config
+		name="Zuora_Connector_Mule4Connector_Config"
+		doc:name="Zuora Connector Mule4Connector Config"
+		doc:id="59dfbe39-1bff-4a30-b245-7c704b0beea1">
+		<mule-zuora-connector:oauth2-connection
+			baseUri="https://rest.apisandbox.zuora.com/">
+			<mule-zuora-connector:oauth-client-credentials
+				clientId="6eb02a49-b7a6-48df-95dc-b76d144130b0"
+				clientSecret="46FDS0TZ42oK7dPySYtNU7j3s3yDUZ6VifZHaa" />
+		</mule-zuora-connector:oauth2-connection>
+	</mule-zuora-connector:config>
+	<flow name="zuoraFlow1"
+		doc:id="30bbeb18-b4a3-43c8-8d7b-4525685f8c6e">
+		
+		<salesforce:replay-channel-listener doc:name="Replay channel listener" doc:id="2f61de7f-a6e4-4fae-b5d0-db113f745072" config-ref="Salesforce_Config" streamingChannel="/event/Platform_Zuora__e" replayOption="ONLY_NEW"/>
+		<foreach doc:name="For Each"
+			doc:id="2ba71c62-5a29-4b03-b290-c24395fdb195">
+			<ee:transform doc:name="Transform Message"
+				doc:id="b34ae4af-a144-40a9-992c-3214d82068b8">
+				<ee:message>
+					<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+	sf_id : payload.data.payload.AccountId__c
+}]]></ee:set-payload>
+				</ee:message>
+				<ee:variables>
+					<ee:set-variable variableName="val"><![CDATA[%dw 2.0
+output application/json
+---
+{
+	"BillingCountry" : payload.data.payload.Country__c,
+	"BillingState" : payload.data.payload.State__c,
+	"BillingCity": payload.data.payload.City__c,
+	"AccountId": payload.data.payload.AccountId__c,
+	"FirstName": payload.data.payload.firstname__c,
+	"LastName": payload.data.payload.lastname__c,
+	"Name": payload.data.payload.Name__c,
+	"Email":payload.data.payload.email__c
+	
+}]]></ee:set-variable>
+				</ee:variables>
+			</ee:transform>
+			<ee:transform doc:name="Transform Message"
+				doc:id="261a5ea4-0171-4914-b22b-e3b824d9e7c9">
+				<ee:message>
+					<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+	"queryString" :"select accountNumber,name,SF_Id__c from account where  SF_Id__c   = '" ++ payload.sf_id ++ "'"
+}]]></ee:set-payload>
+				</ee:message>
+				<ee:variables />
+			</ee:transform>
+			<mule-zuora-connector:create-v1-action-query
+				doc:name="Query" doc:id="e8ca141b-cf87-40cf-aa35-d230377b3f80"
+				config-ref="Zuora_Connector_Mule4Connector_Config">
+			</mule-zuora-connector:create-v1-action-query>
+			<ee:transform doc:name="Transform Message"
+				doc:id="582508c8-6eec-4780-9e53-073cc982e98e">
+				<ee:message>
+					<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+	size : payload.size	
+}]]></ee:set-payload>
+				</ee:message>
+			</ee:transform>
+			<choice doc:name="Choice"
+				doc:id="54ab433d-d5e8-4467-a2c9-194a33576030">
+				<when expression="#[payload.size==0]">
+					<ee:transform doc:name="Transform Message"
+						doc:id="912eb992-05f8-4114-ab8b-445fec623185">
+						<ee:message>
+							<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+	"autoPay" : false,
+	"billCycleDay":0,
+	"billToContact":{
+		"firstName": vars.val.FirstName,
+		"lastName" : vars.val.LastName,
+		"city" : vars.val.BillingCity,
+		"workEmail" : vars.val.Email,
+		"country" : vars.val.BillingCountry,
+		"state" : vars.val.BillingState
+	},
+	"currency" : "USD",
+	"name" : vars.val.Name,
+	"paymentTerm" : "Due Upon Receipt",
+	"SF_Id__c" : vars.val.AccountId
+}]]></ee:set-payload>
+						</ee:message>
+						<ee:variables>
+							<ee:set-variable variableName="sf"><![CDATA[%dw 2.0
+output application/json
+---
+{
+	"SF_Id__c" : vars.val.AccountId
+}]]></ee:set-variable>
+						</ee:variables>
+					</ee:transform>
+					<mule-zuora-connector:create-v1-accounts
+						doc:name="Create account"
+						doc:id="7fb07fb1-037a-47f2-a5d5-13fcac8e08d5"
+						config-ref="Zuora_Connector_Mule4Connector_Config" />
+					<ee:transform doc:name="Transform Message"
+						doc:id="ac75778d-87c1-4d78-aa73-c8350ea1458f">
+						<ee:message>
+							<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+[{
+	Id:vars.sf.SF_Id__c,
+	ZouraId__c: payload.accountNumber
+}]]]></ee:set-payload>
+						</ee:message>
+					</ee:transform>
+					<salesforce:update doc:name="Update"
+						doc:id="8a5abeed-dc09-42cf-92b5-29954d677db4"
+						config-ref="Salesforce_Config" type="Account" />
+					<ee:transform doc:name="Transform Message"
+						doc:id="f32628e6-6327-4b2b-8dfb-d9ab09fefb68">
+						<ee:message>
+							<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+	"Result" : payload
+}]]></ee:set-payload>
+						</ee:message>
+					</ee:transform>
+				</when>
+				<otherwise>
+					<ee:transform doc:name="Transform Message"
+						doc:id="126aafef-c491-4ebe-a79f-e6d04b5cf0e6">
+						<ee:message>
+							<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+	"final" : payload
+}]]></ee:set-payload>
+						</ee:message>
+					</ee:transform>
+					<logger level="INFO" doc:name="Logger"
+						doc:id="b84260d6-e1a5-4556-85c0-0b056350c353" message="success" />
+				</otherwise>
+			</choice>
+		</foreach>
+	</flow>
+</mule>
